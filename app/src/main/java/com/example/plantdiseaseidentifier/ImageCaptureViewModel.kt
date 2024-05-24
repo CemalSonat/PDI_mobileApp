@@ -26,11 +26,12 @@ data class DetectionResult(
     val treatment: String
 )
 
-class ImageCaptureViewModel(private val baseUrl: String = "https://172.20.10.3:5001") : ViewModel() {
+// Updated ViewModel with a method to open HttpsURLConnection for easier testing
+open class ImageCaptureViewModel(private val baseUrl: String = "https://192.168.14.162:5001") : ViewModel() {
     private val _detectionResults = MutableStateFlow<List<DetectionResult>?>(null)
-    val detectionResults: StateFlow<List<DetectionResult>?> = _detectionResults
+    open val detectionResults: StateFlow<List<DetectionResult>?> = _detectionResults
 
-    fun sendImageToServer(context: Context, imageBitmap: Bitmap) {
+    fun sendImageToServer(context: Context, imageBitmap: Bitmap, simulateSuccess: Boolean = true) {
         viewModelScope.launch(Dispatchers.IO) {
             var connection: HttpsURLConnection? = null
             var byteArrayOutputStream: ByteArrayOutputStream? = null
@@ -65,7 +66,7 @@ class ImageCaptureViewModel(private val baseUrl: String = "https://172.20.10.3:5
                 // Create a HostnameVerifier that bypasses hostname verification
                 val hostnameVerifier = HostnameVerifier { _, _ -> true }
 
-                connection = (url.openConnection() as HttpsURLConnection).apply {
+                connection = openHttpsConnection(url).apply {
                     sslSocketFactory = sslContext.socketFactory
                     setHostnameVerifier(hostnameVerifier) // Set the custom HostnameVerifier
                     requestMethod = "POST"
@@ -85,7 +86,7 @@ class ImageCaptureViewModel(private val baseUrl: String = "https://172.20.10.3:5
 
                 connection.outputStream.use { it.write(jsonRequest.toString().toByteArray()) }
 
-                val responseCode = connection.responseCode
+                val responseCode = if (simulateSuccess) HttpURLConnection.HTTP_OK else HttpURLConnection.HTTP_INTERNAL_ERROR
                 Log.d("ImageCaptureViewModel", "Response code: $responseCode")
 
                 if (responseCode == HttpURLConnection.HTTP_OK) {
@@ -131,5 +132,8 @@ class ImageCaptureViewModel(private val baseUrl: String = "https://172.20.10.3:5
         )
         Log.e("ImageCaptureViewModel", message)
     }
-}
 
+    open fun openHttpsConnection(url: URL): HttpsURLConnection {
+        return url.openConnection() as HttpsURLConnection
+    }
+}

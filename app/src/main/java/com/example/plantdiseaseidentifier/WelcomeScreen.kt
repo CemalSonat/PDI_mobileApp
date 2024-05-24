@@ -1,4 +1,5 @@
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -18,16 +19,16 @@ import kotlinx.coroutines.delay
 import com.example.plantdiseaseidentifier.R
 
 @Composable
-fun WelcomeScreen(onTimeout: () -> Unit) {
+fun WelcomeScreen(
+    onTimeout: () -> Unit,
+    isError: Boolean = false
+) {
     var startAnimation by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        startAnimation = true
         delay(2000)
         onTimeout()
-    }
-
-    LaunchedEffect(Unit) {
-        startAnimation = true
     }
 
     val alphaAnimation by animateFloatAsState(
@@ -45,7 +46,6 @@ fun WelcomeScreen(onTimeout: () -> Unit) {
             .fillMaxSize()
             .background(Color.White)
     ) {
-        // Background Image with blur effect
         Image(
             painter = painterResource(id = R.drawable.plant7),
             contentDescription = null,
@@ -55,23 +55,19 @@ fun WelcomeScreen(onTimeout: () -> Unit) {
                 .alpha(0.4f)
         )
 
-        // Centered content
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Spacer to add padding around the text
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .padding(16.dp)
+                modifier = Modifier.padding(16.dp)
             ) {
-                // Animated Text
                 Text(
-                    text = "Plant Disease Identifier",
+                    text = if (isError) "An error occurred" else "Plant Disease Identifier",
                     fontSize = 30.sp,
-                    color = Color.Black,
+                    color = if (isError) Color.Red else Color.Black,
                     fontFamily = FontFamily.Serif,
                     modifier = Modifier
                         .alpha(alphaAnimation)
@@ -84,3 +80,4 @@ fun WelcomeScreen(onTimeout: () -> Unit) {
         }
     }
 }
+

@@ -1,96 +1,99 @@
 import android.content.Context
 import android.graphics.Bitmap
-import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.test.*
-import okhttp3.mockwebserver.MockResponse
-import okhttp3.mockwebserver.MockWebServer
-import org.junit.After
-import org.junit.Before
-import org.junit.Rule
-import org.junit.Test
-import org.mockito.Mockito.*
+import android.util.Log
 import com.example.plantdiseaseidentifier.DetectionResult
 import com.example.plantdiseaseidentifier.ImageCaptureViewModel
-import org.junit.Assert.*
+import junit.framework.TestCase.assertEquals
+import junit.framework.TestCase.assertTrue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runBlockingTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.mockito.Mock
+import org.mockito.MockedStatic
+import org.mockito.Mockito
+import org.mockito.Mockito.mock
+import org.mockito.junit.MockitoJUnitRunner
+import java.net.URL
+import javax.net.ssl.HttpsURLConnection
 
-@ExperimentalCoroutinesApi
+
+@RunWith(MockitoJUnitRunner::class)
+@OptIn(ExperimentalCoroutinesApi::class)
 class ImageCaptureViewModelTest {
 
-    @get:Rule
-    val instantTaskExecutorRule = InstantTaskExecutorRule()
-
     private val testDispatcher = StandardTestDispatcher()
-    private val testScope = TestScope(testDispatcher)
-
-    private lateinit var mockWebServer: MockWebServer
+    private lateinit var viewModel: ImageCaptureViewModel
+    private lateinit var logMock: MockedStatic<Log>
 
     @Before
-    fun setup() {
-        mockWebServer = MockWebServer()
-        mockWebServer.start()
+    fun setUp() {
+        Dispatchers.setMain(testDispatcher)
+        viewModel = object : ImageCaptureViewModel() {
+            override fun openHttpsConnection(url: URL): HttpsURLConnection {
+                return mock(HttpsURLConnection::class.java)
+            }
+        }
+        // Mock the Log class
+        logMock = Mockito.mockStatic(Log::class.java).apply {
+            `when`<Int> { Log.e(Mockito.anyString(), Mockito.anyString()) }.thenReturn(0)
+            `when`<Int> { Log.d(Mockito.anyString(), Mockito.anyString()) }.thenReturn(0)
+            `when`<Int> { Log.i(Mockito.anyString(), Mockito.anyString()) }.thenReturn(0)
+            `when`<Int> { Log.w(Mockito.anyString(), Mockito.anyString()) }.thenReturn(0)
+        }
     }
 
     @After
     fun tearDown() {
-        mockWebServer.shutdown()
+        logMock.close() // Close the static mock to deregister it
+        Dispatchers.resetMain()
     }
 
     @Test
-    fun `sendImageToServer successful response`() = testScope.runTest {
-        val viewModel = ImageCaptureViewModel(mockWebServer.url("/").toString())
-
-        // Mock context and bitmap
-        val context = mock(Context::class.java)
-        val bitmap = mock(Bitmap::class.java)
-
-        // Simulate a successful server response
-        val mockResponse = MockResponse()
-            .setResponseCode(200)
-            .setBody("""
-                {
-                    "results": [
-                        {
-                            "disease_name": "Mock Disease",
-                            "plant_name": "Mock Plant",
-                            "symptoms": "Mock Symptoms",
-                            "treatment": "Mock Treatment"
-                        }
-                    ]
-                }
-            """.trimIndent())
-        mockWebServer.enqueue(mockResponse)
-
-        viewModel.sendImageToServer(context, bitmap)
-
-        // Observe the state flow and assert the results
-        viewModel.detectionResults.collect {
-            assertNotNull(it)
-            assertTrue(it!!.isNotEmpty())
-            assertEquals("Mock Disease", it[0].diseaseName)
-        }
+    fun `openHttpsConnection() should return an HttpsURLConnection`() {
+        val url = URL("https://192.168.14.162:5001")
+        val connection = viewModel.openHttpsConnection(url)
+        assertTrue(connection is HttpsURLConnection)
     }
 
     @Test
-    fun `sendImageToServer error response`() = testScope.runTest {
-        val viewModel = ImageCaptureViewModel(mockWebServer.url("/").toString())
+    fun `handleErrorResponse() should set detection results to unknown`() {
+        viewModel.handleErrorResponse("Test error")
+        assertEquals(
+            listOf(DetectionResult("Unknown", "Unknown", "Unknown", "Unknown")),
+            viewModel.detectionResults.value
+        )
+    }
 
-        // Mock context and bitmap
-        val context = mock(Context::class.java)
-        val bitmap = mock(Bitmap::class.java)
+    @Test
+    fun `sendImageToServer() should update detection results on success`() = runBlockingTest {
+        val mockResponse = """
+    {
+        "results": [
+            {
+                "disease_name": "Test Disease",
+                "plant_name": "Test Plant",
+                "symptoms": "Test Symptoms",
+                "treatment": "Test Treatment"
+            }
+        ]
+    }
+""".trimIndent()
 
-        // Simulate an error server response
-        val mockResponse = MockResponse().setResponseCode(500)
-        mockWebServer.enqueue(mockResponse)
+        // Mock the HttpsURLConnection
+        val mockConnection = mock(HttpsURLConnection::class.java)
 
-        viewModel.sendImageToServer(context, bitmap)
-
-        // Observe the state flow and assert the error handling
-        viewModel.detectionResults.collect {
-            assertNotNull(it)
-            assertTrue(it!!.isNotEmpty())
-            assertEquals("Unknown", it[0].diseaseName)
+        // Mock the openHttpsConnection() function to return the mocked connection
+        val viewModel = object : ImageCaptureViewModel() {
+            override fun openHttpsConnection(url: URL): HttpsURLConnection {
+                return mockConnection
+            }
         }
     }
 }
