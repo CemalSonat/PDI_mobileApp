@@ -1,5 +1,3 @@
-import android.content.Context
-import android.graphics.Bitmap
 import android.util.Log
 import com.example.plantdiseaseidentifier.DetectionResult
 import com.example.plantdiseaseidentifier.ImageCaptureViewModel
@@ -15,7 +13,6 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mockito.Mock
 import org.mockito.MockedStatic
 import org.mockito.Mockito
 import org.mockito.Mockito.mock

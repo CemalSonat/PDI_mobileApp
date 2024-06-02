@@ -1,9 +1,15 @@
 package com.example.plantdiseaseidentifier
 
+import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.util.Log
 import android.view.LayoutInflater
 import android.widget.TextView
 import android.widget.Toast
@@ -35,50 +41,76 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.navigation.NavController
 import com.google.android.material.bottomsheet.BottomSheetDialog
-import java.io.File
 import java.io.FileNotFoundException
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
 
 @Composable
 fun MainScreen(navController: NavController, viewModel: ImageCaptureViewModel) {
     val context = LocalContext.current
-    val file = createImageFile(context)
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-
     var capturedImageUri by remember { mutableStateOf<Uri?>(null) }
     val cameraPermissionGranted = remember { mutableStateOf(false) }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { isSuccessful: Boolean ->
         if (isSuccessful) {
-            processCapturedImage(context, uri, viewModel)
-            navController.navigate("results")
+            capturedImageUri?.let { uri ->
+                Log.d("CameraLauncher", "Image captured successfully: $uri")
+                processCapturedImage(context, uri, viewModel)
+                navController.navigate("results")
+            }
         } else {
             Toast.makeText(context, "Error: Unable to capture image.", Toast.LENGTH_SHORT).show()
+            Log.e("CameraLauncher", "Image capture failed.")
         }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        onPermissionResult(it, context, cameraLauncher, uri, cameraPermissionGranted)
+        onPermissionResult(it, context, cameraLauncher, capturedImageUri, cameraPermissionGranted)
     }
 
     val pickImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
-            capturedImageUri = uri
+            capturedImageUri = it
+            Log.d("PickImageLauncher", "Image picked successfully: $uri")
             processCapturedImage(context, uri, viewModel)
             navController.navigate("results")
+        }
+    }
+
+    val selectPhotosLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            val selectedPhotosUri = result.data?.data
+            selectedPhotosUri?.let {
+                capturedImageUri = it
+                processCapturedImage(context, it, viewModel)
+                navController.navigate("results")
+            }
         }
     }
 
     val requestCameraPermission: () -> Unit = {
         if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             cameraPermissionGranted.value = true
-            cameraLauncher.launch(uri)
+            capturedImageUri = createImageUri(context)
+            capturedImageUri?.let { cameraLauncher.launch(it) }
         } else {
             permissionLauncher.launch(android.Manifest.permission.CAMERA)
+        }
+    }
+
+    val requestStoragePermission: () -> Unit = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/*"
+            }
+            selectPhotosLauncher.launch(intent)
+        } else {
+            pickImageLauncher.launch("image/*")
         }
     }
 
@@ -100,7 +132,7 @@ fun MainScreen(navController: NavController, viewModel: ImageCaptureViewModel) {
             modifier = Modifier.pointerInput(Unit) {
                 detectTapGestures(
                     onTap = {
-                        showBottomSheet(context, requestCameraPermission, pickImageLauncher)
+                        showBottomSheet(context, requestCameraPermission, requestStoragePermission)
                     }
                 )
             }
@@ -109,18 +141,18 @@ fun MainScreen(navController: NavController, viewModel: ImageCaptureViewModel) {
                 text = "Click Below To Start Analyzing",
                 color = Color.Black,
                 fontSize = 25.sp,
-                modifier = Modifier.padding(bottom = 16.dp) // Adjust padding as needed
+                modifier = Modifier.padding(bottom = 16.dp)
             )
             Image(
                 painter = painterResource(id = R.drawable.add_circle),
                 contentDescription = "Custom Icon",
-                modifier = Modifier.size(150.dp) // Adjust the size as per your requirement
+                modifier = Modifier.size(150.dp)
             )
         }
     }
 }
 
-fun showBottomSheet(context: Context, requestCameraPermission: () -> Unit, pickImageLauncher: ActivityResultLauncher<String>) {
+fun showBottomSheet(context: Context, requestCameraPermission: () -> Unit, requestStoragePermission: () -> Unit) {
     val bottomSheetDialog = BottomSheetDialog(context)
     val bottomSheetView = LayoutInflater.from(context).inflate(R.layout.bottom_sheet_layout, null)
     bottomSheetView.findViewById<TextView>(R.id.takePhotoOption).setOnClickListener {
@@ -128,7 +160,7 @@ fun showBottomSheet(context: Context, requestCameraPermission: () -> Unit, pickI
         bottomSheetDialog.dismiss()
     }
     bottomSheetView.findViewById<TextView>(R.id.uploadPhotoOption).setOnClickListener {
-        pickImageLauncher.launch("image/*")
+        requestStoragePermission()
         bottomSheetDialog.dismiss()
     }
     bottomSheetDialog.setContentView(bottomSheetView)
@@ -137,32 +169,63 @@ fun showBottomSheet(context: Context, requestCameraPermission: () -> Unit, pickI
 
 fun processCapturedImage(context: Context, uri: Uri, viewModel: ImageCaptureViewModel) {
     try {
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+        Log.d("ProcessCapturedImage", "URI: $uri")
+
+        val mimeType = context.contentResolver.getType(uri)
+        Log.d("ProcessCapturedImage", "MIME type: $mimeType")
+
+        val inputStream = context.contentResolver.openInputStream(uri)
+        Log.d("ImageCapture", "Input stream opened successfully: $inputStream")
+
+        if (inputStream != null) {
             val bitmap = BitmapFactory.decodeStream(inputStream)
-            viewModel.sendImageToServer(context, bitmap)
+            Log.d("ImageCapture", "Bitmap decoded successfully: $bitmap")
+            inputStream.close()
+
+            if (bitmap != null) {
+                viewModel.sendImageToServer(context, bitmap)
+                Log.d("ProcessCapturedImage", "Bitmap processed successfully")
+            } else {
+                Toast.makeText(context, "Error: Bitmap is null.", Toast.LENGTH_SHORT).show()
+                Log.e("ProcessCapturedImage", "Bitmap is null.")
+            }
+        } else {
+            Toast.makeText(context, "Error: Unable to open input stream.", Toast.LENGTH_SHORT).show()
+            Log.e("ProcessCapturedImage", "Input stream is null.")
         }
     } catch (e: FileNotFoundException) {
         Toast.makeText(context, "Error: Unable to load image.", Toast.LENGTH_SHORT).show()
+        Log.e("ProcessCapturedImage", "FileNotFoundException: ${e.message}", e)
+    } catch (e: IOException) {
+        Toast.makeText(context, "Error: Unable to decode image. ${e.message}", Toast.LENGTH_SHORT).show()
+        Log.e("ProcessCapturedImage", "IOException: ${e.message}", e)
+    } catch (e: Exception) {
+        Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+        Log.e("ProcessCapturedImage", "Exception: ${e.message}", e)
     }
 }
 
-fun createImageFile(context: Context): File {
-    val timeStamp = SimpleDateFormat("yyyy_MM_dd_HH:mm:ss").format(Date())
-    val imageFileName = "JPEG_$timeStamp.jpg"
-    return File.createTempFile(imageFileName, null, context.externalCacheDir)
+fun createImageUri(context: Context): Uri? {
+    val contentValues = ContentValues().apply {
+        put(MediaStore.Images.Media.DISPLAY_NAME, "JPEG_${SimpleDateFormat("yyyy_MM_dd_HH_mm_ss", Locale.US).format(Date())}.jpg")
+        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+        put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/YourAppName")
+    }
+
+    return context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
 }
 
 fun onPermissionResult(
     granted: Boolean,
     context: Context,
     cameraLauncher: ActivityResultLauncher<Uri>,
-    uri: Uri,
+    uri: Uri?,
     cameraPermissionGranted: MutableState<Boolean>
 ) {
     if (granted) {
         Toast.makeText(context, "Permission granted", Toast.LENGTH_SHORT).show()
         cameraPermissionGranted.value = true
-        cameraLauncher.launch(uri)
+        uri?.let { cameraLauncher.launch(it) }
     } else {
         Toast.makeText(context, "Permission denied", Toast.LENGTH_SHORT).show()
     }

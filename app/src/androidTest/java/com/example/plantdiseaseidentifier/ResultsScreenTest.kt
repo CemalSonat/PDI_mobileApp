@@ -1,64 +1,62 @@
 /*package com.example.plantdiseaseidentifier
 
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.navigation.compose.rememberNavController
-import com.example.plantdiseaseidentifier.MainActivity
-import com.example.plantdiseaseidentifier.ResultsScreen
-import com.example.plantdiseaseidentifier.ImageCaptureViewModel
-import com.example.plantdiseaseidentifier.DetectionResult
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import org.mockito.Mockito
-import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.runner.RunWith
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.`when`
 
+@RunWith(AndroidJUnit4::class)
 class ResultsScreenTest {
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-    @Test
-    fun resultsScreen_showsLoading() {
-        val viewModel = Mockito.mock(ImageCaptureViewModel::class.java).apply {
-            Mockito.`when`(detectionResults).thenReturn(MutableStateFlow(null))
-        }
+    private lateinit var viewModel: ImageCaptureViewModel
 
-        val navController = rememberNavController()
-
+    @Before
+    fun setup() {
+        viewModel = mockViewModel(DetectionResult("Disease 1", "Plant 1", "Symptoms 1", "Treatment 1"))
         composeTestRule.setContent {
-            ResultsScreen(viewModel = viewModel, navController = navController)
+            ResultsScreen(viewModel = viewModel, navController = rememberNavController())
         }
-
-        // Check if the loading indicator is displayed
-        composeTestRule.onNodeWithText("Loading...").assertIsDisplayed()
     }
 
     @Test
-    fun resultsScreen_showsResults() {
-        val mockResults = listOf(
-            DetectionResult("Disease1", "Plant1", "Symptoms1", "Treatment1"),
-            DetectionResult("Disease2", "Plant2", "Symptoms2", "Treatment2")
-        )
-        val viewModel = Mockito.mock(ImageCaptureViewModel::class.java).apply {
-            Mockito.`when`(detectionResults).thenReturn(MutableStateFlow(mockResults))
-        }
+    fun resultsScreenDisplaysCorrectly() {
+        // Verify that the result is displayed correctly
+        composeTestRule.onNodeWithText("Disease 1").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Plant 1").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Symptoms 1").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Treatment 1").assertIsDisplayed()
+    }
 
-        val navController = rememberNavController()
+    @Test
+    fun resultsScreenDisplaysUnknown() {
+        // Change the detection result to "Unknown"
+        `when`(viewModel.detectionResults).thenReturn(MutableStateFlow(listOf(
+            DetectionResult("Unknown", "Unknown", "Unknown", "Unknown")
+        )))
 
-        composeTestRule.setContent {
-            ResultsScreen(viewModel = viewModel, navController = navController)
-        }
+        // Verify that "unknown" values are displayed
+        composeTestRule.onNodeWithText("Disease Name: Unknown").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Plant Name: Unknown").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Symptoms: Unknown").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Treatment: Unknown").assertIsDisplayed()
+    }
 
-        // Check if the results are displayed
-        composeTestRule.onNodeWithText("Disease1").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Plant1").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Symptoms1").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Treatment1").assertIsDisplayed()
-
-        composeTestRule.onNodeWithText("Disease2").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Plant2").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Symptoms2").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Treatment2").assertIsDisplayed()
+    private fun mockViewModel(detectionResult: DetectionResult): ImageCaptureViewModel {
+        val viewModel = mock(ImageCaptureViewModel::class.java)
+        val stateFlow = MutableStateFlow(listOf(detectionResult))
+        `when`(viewModel.detectionResults).thenReturn(stateFlow)
+        return viewModel
     }
 }
 */
