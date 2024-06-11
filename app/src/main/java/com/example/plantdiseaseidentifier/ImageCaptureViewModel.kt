@@ -18,21 +18,31 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
-import javax.net.ssl.*
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManagerFactory
 
-data class DetectionResult(
-    val diseaseName: String,
-    val plantName: String,
-    val symptoms: String,
-    val treatment: String
-)
+sealed class DetectionResult {
+    data class Detailed(
+        val diseaseName: String,
+        val plantName: String,
+        val symptoms: String,
+        val treatment: String
+    ) : DetectionResult()
 
-open class ImageCaptureViewModel(private val baseUrl: String = "https://192.168.14.162:5001") : ViewModel() {
+    data class Simple(val result: String) : DetectionResult()
+}
+
+open class ImageCaptureViewModel(private val baseUrl: String = "https://172.20.10.3:5001") : ViewModel() {
     private val _detectionResults = MutableStateFlow<List<DetectionResult>?>(null)
     open val detectionResults: StateFlow<List<DetectionResult>?> = _detectionResults
 
     fun sendImageToServer(context: Context, imageBitmap: Bitmap) {
         viewModelScope.launch(Dispatchers.IO) {
+            // Clear previous results and show loading indicator
+            _detectionResults.value = null
+
             var connection: HttpsURLConnection? = null
             var byteArrayOutputStream: ByteArrayOutputStream? = null
 
@@ -103,15 +113,24 @@ open class ImageCaptureViewModel(private val baseUrl: String = "https://192.168.
                         val resultsArray = jsonObject.getJSONArray("results")
 
                         val detectionResults = mutableListOf<DetectionResult>()
+
                         for (i in 0 until resultsArray.length()) {
                             val resultObject = resultsArray.getJSONObject(i)
-                            val detectionResult = DetectionResult(
-                                diseaseName = resultObject.getString("disease_name"),
-                                plantName = resultObject.getString("plant_name"),
-                                symptoms = resultObject.getString("symptoms"),
-                                treatment = resultObject.getString("treatment")
-                            )
-                            detectionResults.add(detectionResult)
+
+                            val plantName = resultObject.optString("plant_name", "")
+                            val diseaseName = resultObject.optString("disease_name", "healthy")
+
+                            if (diseaseName == "healthy") {
+                                val detectionResult = DetectionResult.Simple("$plantName is healthy")
+                                detectionResults.add(detectionResult)
+                                Log.d("ImageCaptureViewModel", "The plant is healthy. Plant name: $plantName")
+                            } else {
+                                val symptoms = resultObject.optString("symptoms", "No symptoms information available")
+                                val treatment = resultObject.optString("treatment", "No treatment information available")
+                                val detectionResult = DetectionResult.Detailed(diseaseName, plantName, symptoms, treatment)
+                                detectionResults.add(detectionResult)
+                                Log.d("ImageCaptureViewModel", "Disease detected. Plant name: $plantName, Disease name: $diseaseName, Symptoms: $symptoms, Treatment: $treatment")
+                            }
                         }
 
                         _detectionResults.value = detectionResults
@@ -137,9 +156,8 @@ open class ImageCaptureViewModel(private val baseUrl: String = "https://192.168.
     }
 
     internal fun handleErrorResponse(message: String) {
-        _detectionResults.value = listOf(
-            DetectionResult("Unknown", "Unknown", "Unknown", "Unknown")
-        )
+        val defaultResult = DetectionResult.Simple("Unknown Plant")
+        _detectionResults.value = listOf(defaultResult)
         Log.e("ImageCaptureViewModel", message)
     }
 
